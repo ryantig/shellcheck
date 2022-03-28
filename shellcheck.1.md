@@ -107,10 +107,13 @@ not warn at all, as `ksh` supports decimals in arithmetic contexts.
 
 **-x**,\ **--external-sources**
 
-:   Follow 'source' statements even when the file is not specified as input.
+:   Follow `source` statements even when the file is not specified as input.
     By default, `shellcheck` will only follow files specified on the command
     line (plus `/dev/null`). This option allows following any file the script
     may `source`.
+
+    This option may also be enabled using `external-sources=true` in
+    `.shellcheckrc`. This flag takes precedence.
 
 **FILES...**
 
@@ -232,11 +235,21 @@ Valid keys are:
 **disable**
 :   Disables a comma separated list of error codes for the following command.
     The command can be a simple command like `echo foo`, or a compound command
-    like a function definition, subshell block or loop.
+    like a function definition, subshell block or loop. A range can be
+    be specified with a dash, e.g. `disable=SC3000-SC4000` to exclude 3xxx.
+    All warnings can be disabled with `disable=all`.
 
 **enable**
 :   Enable an optional check by name, as listed with **--list-optional**.
     Only file-wide `enable` directives are considered.
+
+**external-sources**
+:   Set to `true` in `.shellcheckrc` to always allow ShellCheck to open
+    arbitrary files from 'source' statements (the way most tools do).
+
+    This option defaults to `false` only due to ShellCheck's origin as a
+    remote service for checking untrusted scripts. It can safely be enabled
+    for normal development.
 
 **source**
 :   Overrides the filename included by a `source`/`.` statement. This can be
@@ -254,7 +267,7 @@ Valid keys are:
 **shell**
 :   Overrides the shell detected from the shebang.  This is useful for
     files meant to be included (and thus lacking a shebang), or possibly
-    as a more targeted alternative to 'disable=2039'.
+    as a more targeted alternative to 'disable=SC2039'.
 
 # RC FILES
 
@@ -269,14 +282,17 @@ Here is an example `.shellcheckrc`:
     source-path=SCRIPTDIR
     source-path=/mnt/chroot
 
+    # Allow opening any 'source'd file, even if not specified as input
+    external-sources=true
+
     # Turn on warnings for unquoted variables with safe values
     enable=quote-safe-variables
 
     # Turn on warnings for unassigned uppercase variables
     enable=check-unassigned-uppercase
 
-    # Allow using `which` since it gives full paths and is common enough
-    disable=SC2230
+    # Allow [ ! -z foo ] instead of suggesting -n
+    disable=SC2236
 
 If no `.shellcheckrc` is found in any of the parent directories, ShellCheck
 will look in `~/.shellcheckrc` followed by the XDG config directory
@@ -301,7 +317,7 @@ invocation.
 
 # RETURN VALUES
 
-ShellCheck uses the follow exit codes:
+ShellCheck uses the following exit codes:
 
 + 0: All files successfully scanned with no issues.
 + 1: All files successfully scanned with some issues.
@@ -319,10 +335,32 @@ locales where encoding is unspecified (such as the `C` locale).
 Windows users seeing `commitBuffer: invalid argument (invalid character)`
 should set their terminal to use UTF-8 with `chcp 65001`.
 
-# AUTHORS
+# KNOWN INCOMPATIBILITIES
 
-ShellCheck is developed and maintained by Vidar Holen, with assistance from a
-long list of wonderful contributors.
+(If nothing in this section makes sense, you are unlikely to be affected by it)
+
+To avoid confusing and misguided suggestions, ShellCheck requires function
+bodies to be either `{ brace groups; }` or `( subshells )`, and function names
+containing `[]*=!` are only recognized after a `function` keyword.
+
+The following unconventional function definitions are identical in Bash,
+but ShellCheck only recognizes the latter.
+
+    [x!=y] () [[ $1 ]]
+    function [x!=y] () { [[ $1 ]]; }
+
+Shells without the `function` keyword do not allow these characters in function
+names to begin with.  Function names containing `{}` are not supported at all.
+
+Further, if ShellCheck sees `[x!=y]` it will assume this is an invalid
+comparison. To invoke the above function, quote the command as in `'[x!=y]'`,
+or to retain the same globbing behavior, use `command [x!=y]`.
+
+ShellCheck imposes additional restrictions on the `[` command to help diagnose
+common invalid uses. While `[ $x= 1 ]` is defined in POSIX, ShellCheck will
+assume it was intended as the much more likely comparison `[ "$x" = 1 ]` and
+fail accordingly. For unconventional or dynamic uses of the `[` command, use
+`test` or `\[` instead.
 
 # REPORTING BUGS
 
@@ -330,9 +368,14 @@ Bugs and issues can be reported on GitHub:
 
 https://github.com/koalaman/shellcheck/issues
 
+# AUTHORS
+
+ShellCheck is developed and maintained by Vidar Holen, with assistance from a
+long list of wonderful contributors.
+
 # COPYRIGHT
 
-Copyright 2012-2019, Vidar Holen and contributors.
+Copyright 2012-2021, Vidar Holen and contributors.
 Licensed under the GNU General Public License version 3 or later,
 see https://gnu.org/licenses/gpl.html
 

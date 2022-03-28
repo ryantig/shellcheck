@@ -1,5 +1,5 @@
 Name:             ShellCheck
-Version:          0.7.0
+Version:          0.8.0
 Synopsis:         Shell script analysis tool
 License:          GPL-3
 License-file:     LICENSE
@@ -7,8 +7,8 @@ Category:         Static Analysis
 Author:           Vidar Holen
 Maintainer:       vidar@vidarholen.net
 Homepage:         https://www.shellcheck.net/
-Build-Type:       Custom
-Cabal-Version:    >= 1.8
+Build-Type:       Simple
+Cabal-Version:    1.18
 Bug-reports:      https://github.com/koalaman/shellcheck/issues
 Description:
   The goals of ShellCheck are:
@@ -22,22 +22,18 @@ Description:
   * To point out subtle caveats, corner cases and pitfalls, that may cause an
     advanced user's otherwise working script to fail under future circumstances.
 
+Extra-Doc-Files:
+    README.md
+    CHANGELOG.md
 Extra-Source-Files:
     -- documentation
-    README.md
     shellcheck.1.md
-    -- built with a cabal sdist hook
-    shellcheck.1
+    -- A script to build the man page using pandoc
+    manpage
     -- convenience script for stripping tests
     striptests
     -- tests
     test/shellcheck.hs
-
-custom-setup
-  setup-depends:
-    base    >= 4    && <5,
-    process >= 1.0  && <1.7,
-    Cabal   >= 1.10 && <2.5
 
 source-repository head
     type: git
@@ -51,9 +47,7 @@ library
     build-depends:
       aeson,
       array,
-      -- GHC 7.6.3 (base 4.6.0.1) is buggy (#1131, #1119) in optimized mode.
-      -- Just disable that version entirely to fail fast.
-      base > 4.6.0.1 && < 5,
+      base >= 4.8.0.0 && < 5,
       bytestring,
       containers >= 0.5,
       deepseq >= 1.4.0.0,
@@ -91,6 +85,7 @@ library
       ShellCheck.Regex
     other-modules:
       Paths_ShellCheck
+    default-language: Haskell98
 
 executable shellcheck
     if impl(ghc < 8.0)
@@ -111,6 +106,7 @@ executable shellcheck
       QuickCheck >= 2.7.4,
       regex-tdfa,
       ShellCheck
+    default-language: Haskell98
     main-is: shellcheck.hs
 
 test-suite test-shellcheck
@@ -130,5 +126,5 @@ test-suite test-shellcheck
       QuickCheck >= 2.7.4,
       regex-tdfa,
       ShellCheck
+    default-language: Haskell98
     main-is: test/shellcheck.hs
-

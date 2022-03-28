@@ -1,5 +1,5 @@
 {-
-    Copyright 2012-2019 Vidar Holen
+    Copyright 2012-2020 Vidar Holen
 
     This file is part of ShellCheck.
     https://www.shellcheck.net
@@ -48,7 +48,7 @@ tokenToPosition startMap t = fromMaybe fail $ do
   where
     fail = error "Internal shellcheck error: id doesn't exist. Please report!"
 
-shellFromFilename filename = foldl mplus Nothing candidates
+shellFromFilename filename = listToMaybe candidates
   where
     shellExtensions = [(".ksh", Ksh)
                       ,(".bash", Bash)
@@ -57,7 +57,7 @@ shellFromFilename filename = foldl mplus Nothing candidates
                       -- The `.sh` is too generic to determine the shell:
                       -- We fallback to Bash in this case and emit SC2148 if there is no shebang
     candidates =
-        map (\(ext,sh) -> if ext `isSuffixOf` filename then Just sh else Nothing) shellExtensions
+        [sh | (ext,sh) <- shellExtensions, ext `isSuffixOf` filename]
 
 checkScript :: Monad m => SystemInterface m -> CheckSpec -> m CheckResult
 checkScript sys spec = do
@@ -88,9 +88,9 @@ checkScript sys spec = do
                     asOptionalChecks = csOptionalChecks spec
                 } where as = newAnalysisSpec root
         let analysisMessages =
-                fromMaybe [] $
+                maybe []
                     (arComments . analyzeScript . analysisSpec)
-                        <$> prRoot result
+                        $ prRoot result
         let translator = tokenToPosition tokenPositions
         return . nub . sortMessages . filter shouldInclude $
             (parseMessages ++ map translator analysisMessages)
@@ -104,7 +104,7 @@ checkScript sys spec = do
             code     = cCode (pcComment pc)
             severity = cSeverity (pcComment pc)
 
-    sortMessages = sortBy (comparing order)
+    sortMessages = sortOn order
     order pc =
         let pos = pcStartPos pc
             comment = pcComment pc in
@@ -156,6 +156,11 @@ checkWithIncludesAndSourcePath includes mapper = getErrors
         siFindSource = mapper
     }
 
+checkWithRcIncludesAndSourcePath rc includes mapper = getErrors
+    (mockRcFile rc $ mockedSystemInterface includes) {
+        siFindSource = mapper
+    }
+
 prop_findsParseIssue = check "echo \"$12\"" == [1037]
 
 prop_commentDisablesParseIssue1 =
@@ -198,11 +203,11 @@ prop_optionDisablesBadShebang =
                 }
 
 prop_annotationDisablesBadShebang =
-    [] == check "#!/usr/bin/python\n# shellcheck shell=sh\ntrue\n"
+    null $ check "#!/usr/bin/python\n# shellcheck shell=sh\ntrue\n"
 
 
 prop_canParseDevNull =
-    [] == check "source /dev/null"
+    null $ check "source /dev/null"
 
 prop_failsWhenNotSourcing =
     [1091, 2154] == check "source lol; echo \"$bar\""
@@ -218,7 +223,7 @@ prop_worksWhenDotting =
 
 -- FIXME: This should really be giving [1093], "recursively sourced"
 prop_noInfiniteSourcing =
-    [] == checkWithIncludes  [("lib", "source lib")] "source lib"
+    null $ checkWithIncludes  [("lib", "source lib")] "source lib"
 
 prop_canSourceBadSyntax =
     [1094, 2086] == checkWithIncludes [("lib", "for f; do")] "source lib; echo $1"
@@ -228,6 +233,12 @@ prop_cantSourceDynamic =
 
 prop_cantSourceDynamic2 =
     [1090] == checkWithIncludes [("lib", "")] "source ~/foo"
+
+prop_canStripPrefixAndSource =
+    null $ checkWithIncludes [("./lib", "")] "source \"$MYDIR/lib\""
+
+prop_canStripPrefixAndSource2 =
+    null $ checkWithIncludes [("./utils.sh", "")] "source \"$(dirname \"${BASH_SOURCE[0]}\")/utils.sh\""
 
 prop_canSourceDynamicWhenRedirected =
     null $ checkWithIncludes [("lib", "")] "#shellcheck source=lib\n. \"$1\""
@@ -239,10 +250,10 @@ prop_recursiveParsing =
     [1037] == checkRecursive [("lib", "echo \"$10\"")] "source lib"
 
 prop_nonRecursiveAnalysis =
-    [] == checkWithIncludes [("lib", "echo $1")] "source lib"
+    null $ checkWithIncludes [("lib", "echo $1")] "source lib"
 
 prop_nonRecursiveParsing =
-    [] == checkWithIncludes [("lib", "echo \"$10\"")] "source lib"
+    null $ checkWithIncludes [("lib", "echo \"$10\"")] "source lib"
 
 prop_sourceDirectiveDoesntFollowFile =
     null $ checkWithIncludes
@@ -270,7 +281,7 @@ prop_filewideAnnotation8 = null $
     check "# Disable $? warning\n#shellcheck disable=SC2181\n# Disable quoting warning\n#shellcheck disable=2086\ntrue\n[ $? == 0 ] && echo $1"
 
 prop_sourcePartOfOriginalScript = -- #1181: -x disabled posix warning for 'source'
-    2039 `elem` checkWithIncludes [("./saywhat.sh", "echo foo")] "#!/bin/sh\nsource ./saywhat.sh"
+    3046 `elem` checkWithIncludes [("./saywhat.sh", "echo foo")] "#!/bin/sh\nsource ./saywhat.sh"
 
 prop_spinBug1413 = null $ check "fun() {\n# shellcheck disable=SC2188\n> /dev/null\n}\n"
 
@@ -286,6 +297,27 @@ prop_deducesTypeFromExtension2 = result == [2079]
     result = checkWithSpec [] emptyCheckSpec {
         csFilename = "file.bash",
         csScript = "(( 3.14 ))"
+    }
+
+prop_canDisableShebangWarning = null $ result
+  where
+    result = checkWithSpec [] emptyCheckSpec {
+        csFilename = "file.sh",
+        csScript = "#shellcheck disable=SC2148\nfoo"
+    }
+
+prop_canDisableAllWarnings = result == [2086]
+  where
+    result = checkWithSpec [] emptyCheckSpec {
+        csFilename = "file.sh",
+        csScript = "#!/bin/sh\necho $1\n#shellcheck disable=all\necho `echo $1`"
+    }
+
+prop_canDisableParseErrors = null $ result
+  where
+    result = checkWithSpec [] emptyCheckSpec {
+        csFilename = "file.sh",
+        csScript = "#shellcheck disable=SC1073,SC1072,SC2148\n()"
     }
 
 prop_shExtensionDoesntMatter = result == [2148]
@@ -328,7 +360,7 @@ prop_optionIncludes4 =
     [2154] == checkOptionIncludes (Just [2154]) "#!/bin/sh\n var='a b'\n echo $var\n echo $bar"
 
 
-prop_readsRcFile = result == []
+prop_readsRcFile = null result
   where
     result = checkWithRc "disable=2086" emptyCheckSpec {
         csScript = "#!/bin/sh\necho $1",
@@ -364,7 +396,7 @@ prop_canEnableOptionalsWithRc = result == [2244]
 
 prop_sourcePathRedirectsName = result == [2086]
   where
-    f "dir/myscript" _ "lib" = return "foo/lib"
+    f "dir/myscript" _ _ "lib" = return "foo/lib"
     result = checkWithIncludesAndSourcePath [("foo/lib", "echo $1")] f emptyCheckSpec {
         csScript = "#!/bin/bash\nsource lib",
         csFilename = "dir/myscript",
@@ -373,7 +405,7 @@ prop_sourcePathRedirectsName = result == [2086]
 
 prop_sourcePathAddsAnnotation = result == [2086]
   where
-    f "dir/myscript" ["mypath"] "lib" = return "foo/lib"
+    f "dir/myscript" _ ["mypath"] "lib" = return "foo/lib"
     result = checkWithIncludesAndSourcePath [("foo/lib", "echo $1")] f emptyCheckSpec {
         csScript = "#!/bin/bash\n# shellcheck source-path=mypath\nsource lib",
         csFilename = "dir/myscript",
@@ -382,13 +414,75 @@ prop_sourcePathAddsAnnotation = result == [2086]
 
 prop_sourcePathRedirectsDirective = result == [2086]
   where
-    f "dir/myscript" _ "lib" = return "foo/lib"
-    f _ _ _ = return "/dev/null"
+    f "dir/myscript" _ _ "lib" = return "foo/lib"
+    f _ _ _ _ = return "/dev/null"
     result = checkWithIncludesAndSourcePath [("foo/lib", "echo $1")] f emptyCheckSpec {
         csScript = "#!/bin/bash\n# shellcheck source=lib\nsource kittens",
         csFilename = "dir/myscript",
         csCheckSourced = True
     }
+
+prop_rcCanAllowExternalSources = result == [2086]
+  where
+    f "dir/myscript" (Just True) _ "mylib" = return "resolved/mylib"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "external-sources=true" [("resolved/mylib", "echo $1")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\nsource mylib",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
+prop_rcCanDenyExternalSources = result == [2086]
+  where
+    f "dir/myscript" (Just False) _ "mylib" = return "resolved/mylib"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "external-sources=false" [("resolved/mylib", "echo $1")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\nsource mylib",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
+prop_rcCanLeaveExternalSourcesUnspecified = result == [2086]
+  where
+    f "dir/myscript" Nothing _ "mylib" = return "resolved/mylib"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "" [("resolved/mylib", "echo $1")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\nsource mylib",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
+prop_fileCanDisableExternalSources = result == [2006, 2086]
+  where
+    f "dir/myscript" (Just True) _ "withExternal" = return "withExternal"
+    f "dir/myscript" (Just False) _ "withoutExternal" = return "withoutExternal"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "external-sources=true" [("withExternal", "echo $1"), ("withoutExternal", "_=`foo`")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\ntrue\nsource withExternal\n# shellcheck external-sources=false\nsource withoutExternal",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
+prop_fileCannotEnableExternalSources = result == [1144]
+  where
+    f "dir/myscript" Nothing _ "foo" = return "foo"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "" [("foo", "true")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\n# shellcheck external-sources=true\nsource foo",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
+prop_fileCannotEnableExternalSources2 = result == [1144]
+  where
+    f "dir/myscript" (Just False) _ "foo" = return "foo"
+    f a b c d = error $ show ("Unexpected", a, b, c, d)
+    result = checkWithRcIncludesAndSourcePath "external-sources=false" [("foo", "true")] f emptyCheckSpec {
+        csScript = "#!/bin/bash\n# shellcheck external-sources=true\nsource foo",
+        csFilename = "dir/myscript",
+        csCheckSourced = True
+    }
+
 
 return []
 runTests = $quickCheckAll

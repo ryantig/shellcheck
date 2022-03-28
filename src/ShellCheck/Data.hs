@@ -4,7 +4,7 @@ import ShellCheck.Interface
 import Data.Version (showVersion)
 import Paths_ShellCheck (version)
 
-shellcheckVersion = showVersion version
+shellcheckVersion = showVersion version -- VERSIONSTRING
 
 internalVariables = [
     -- Generic
@@ -114,6 +114,10 @@ binaryTestOps = [
     "-gt", "-ge", "=~", ">", "<", "=", "\\<", "\\>", "\\<=", "\\>="
   ]
 
+arithmeticBinaryTestOps = [
+    "-eq", "-ne", "-lt", "-le", "-gt", "-ge"
+  ]
+
 unaryTestOps = [
     "!", "-a", "-b", "-c", "-d", "-e", "-f", "-g", "-h", "-L", "-k", "-p",
     "-r", "-s", "-S", "-t", "-u", "-w", "-x", "-O", "-G", "-N", "-z", "-n",
@@ -131,4 +135,8 @@ shellForExecutable name =
         "ksh"   -> return Ksh
         "ksh88" -> return Ksh
         "ksh93" -> return Ksh
-        otherwise -> Nothing
+        _ -> Nothing
+
+flagsForRead = "sreu:n:N:i:p:a:t:"
+
+declaringCommands = ["local", "declare", "export", "readonly", "typeset", "let"]
